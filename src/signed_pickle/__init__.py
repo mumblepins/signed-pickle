@@ -1,4 +1,5 @@
 # coding=utf-8
+# coding=utf-8
 # signs pickled data to help ensure data integrity and security
 # Based on https://pycharm-security.readthedocs.io/en/latest/checks/PIC100.html
 
