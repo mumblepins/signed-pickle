@@ -49,7 +49,6 @@ jobs:
       - name: publish
         if: contains(github.ref, 'refs/tags/v')
         env:
-          POETRY_HTTP_BASIC_PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-          POETRY_HTTP_BASIC_PYPI_USERNAME: ${{ secrets.PYPI_USERNAME }}
+          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
         run: |
           poetry publish || poetry publish
