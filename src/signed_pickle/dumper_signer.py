@@ -201,14 +201,14 @@ class DumperSigner:
 
     @classmethod
     def from_base64(cls, b64: bytes) -> Any:
-        return cls.load(base64.b64decode(b64))[0]
+        return cls.load(base64.b64decode(b64.strip()))[0]
 
     def to_base85(self, obj: bytes) -> bytes:
         return base64.b85encode(self.dump(obj))  # type: ignore
 
     @classmethod
     def from_base85(cls, b85: bytes) -> Any:
-        return cls.load(base64.b85decode(b85))[0]
+        return cls.load(base64.b85decode(b85.strip()))[0]
 
 
 @contextmanager
