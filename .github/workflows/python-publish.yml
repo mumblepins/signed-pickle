@@ -1,4 +1,4 @@
-name:  Python Publish
+name: Python Publish
 
 on: [ push, pull_request ]
 
@@ -9,41 +9,103 @@ jobs:
       should_skip: ${{ steps.skip_check.outputs.should_skip }}
     steps:
       - id: skip_check
-        uses: fkirc/skip-duplicate-actions@master
+        uses: fkirc/skip-duplicate-actions@v4.0.0
         with:
-          concurrent_skipping: 'same_content'
+          concurrent_skipping: 'same_content_newer'
           do_not_skip: '["pull_request", "workflow_dispatch", "schedule", "create", "release"]'
 
-  lint:
+  test:
     needs: pre_job
-    if: ${{ needs.pre_job.outputs.should_skip != 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
-      - uses: psf/black@stable
-        with:
-          args: ". --check"
-  deploy:
-    needs:
-      - pre_job
-      - lint
-    if: ${{ needs.pre_job.outputs.should_skip != 'true' }}
-    runs-on: ubuntu-latest
+    if: ${{ needs.pre_job.outputs.should_skip != 'true' || contains(github.ref, 'refs/tags/v')}}
 
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ ubuntu-latest ]
+        python-version: [ '3.9' ,'3.10','3.8' ]
+    env:
+      OS: ${{ matrix.os }}
+      PYTHON: ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Set up Python
         uses: actions/setup-python@v3
         with:
-          python-version: '3.10'
-      - name: Poetry
-        uses: abatilo/actions-poetry@v2.1.4
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/cache@v3
+        id: cache-pip
         with:
-          poetry-version: 1.1.13
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-${{ matrix.python-version }}
+      - run: pip install --upgrade --pre poetry
+      - uses: actions/cache@v3
+        id: cache-poetry
+        with:
+          path: ~/.cache/pypoetry/virtualenvs
+          key: ${{ runner.os }}-${{ matrix.python-version }}-poetry-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.python-version }}-poetry-
+            ${{ runner.os }}-
+      - name: install dependencies
+        run: |
+          poetry install --sync
+      - name: run pre-commit
+        uses: pre-commit/action@v2.0.3
+      #        run: poetry run pre-commit run --all-files
+      #      - name: run tests
+      #        run: |
+      #          poetry run pytest "tests/" \
+      #          --verbose  \
+      #          -n 4 \
+      #          --cov=aws_lambda_python_packager \
+      #          --pyargs "aws_lambda_python_packager" \
+      #          --cov-report=html --cov-report=term --cov-report=xml
+#      - uses: codecov/codecov-action@v2
+#        with:
+#          files: ./coverage.xml
+#          env_vars: OS,PYTHON
+  deploy:
+    needs:
+      - pre_job
+      - test
+    if: ${{ needs.pre_job.outputs.should_skip != 'true' || contains(github.ref, 'refs/tags/v') }}
+
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ ubuntu-latest ]
+        python-version: [ '3.10' ]
+    env:
+      OS: ${{ matrix.os }}
+      PYTHON: ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/cache@v3
+        id: cache-pip
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-${{ matrix.python-version }}
+      - run: pip install --upgrade --pre poetry
+      - uses: actions/cache@v3
+        id: cache-poetry
+        with:
+          path: ~/.cache/pypoetry/virtualenvs
+          key: ${{ runner.os }}-${{ matrix.python-version }}-poetry-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.python-version }}-poetry-
+            ${{ runner.os }}-
+      - name: install dependencies
+        run: |
+          poetry install --sync
       - name: build
         run: |
-          poetry install
           poetry build
           echo $GITHUB_REF
       - name: publish
