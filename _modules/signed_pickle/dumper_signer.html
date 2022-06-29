@@ -67,24 +67,31 @@
              
   <h1>Source code for signed_pickle.dumper_signer</h1><div class="highlight"><pre>
 <span></span><span class="c1"># -*- coding: utf-8 -*-</span>
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span> <span class="nn">base64</span>
+<span class="kn">import</span> <span class="nn">dataclasses</span>
 <span class="kn">import</span> <span class="nn">hmac</span>
+<span class="kn">import</span> <span class="nn">importlib</span>
 <span class="kn">import</span> <span class="nn">io</span>
 <span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">contextmanager</span>
 <span class="kn">from</span> <span class="nn">os</span> <span class="kn">import</span> <span class="n">PathLike</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span> <span class="nn">types</span> <span class="kn">import</span> <span class="n">ModuleType</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">Type</span><span class="p">,</span> <span class="n">Union</span>
 
 <span class="k">try</span><span class="p">:</span>
     <span class="kn">from</span> <span class="nn">lz4</span> <span class="kn">import</span> <span class="n">frame</span> <span class="k">as</span> <span class="n">def_comp</span>
 
-    <span class="n">COMPRESSION_KWARGS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;compression_level&quot;</span><span class="p">:</span> <span class="n">def_comp</span><span class="o">.</span><span class="n">COMPRESSIONLEVEL_MAX</span><span class="p">}</span>
+    <span class="n">COMPRESSOR_KWARGS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;compression_level&quot;</span><span class="p">:</span> <span class="n">def_comp</span><span class="o">.</span><span class="n">COMPRESSIONLEVEL_MAX</span><span class="p">}</span>
 <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
     <span class="kn">import</span> <span class="nn">zlib</span> <span class="k">as</span> <span class="nn">def_comp</span>  <span class="c1"># type: ignore</span>
 
-    <span class="n">COMPRESSION_KWARGS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;level&quot;</span><span class="p">:</span> <span class="n">def_comp</span><span class="o">.</span><span class="n">Z_BEST_COMPRESSION</span><span class="p">}</span>
+    <span class="n">COMPRESSOR_KWARGS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;level&quot;</span><span class="p">:</span> <span class="n">def_comp</span><span class="o">.</span><span class="n">Z_BEST_COMPRESSION</span><span class="p">}</span>
 
 <span class="n">DEFAULT_KEY</span> <span class="o">=</span> <span class="sa">b</span><span class="s2">&quot;fe95e0f8-b3d2-478d-88b2-c74b6e7194a4&quot;</span>
 
-<span class="n">FileType</span> <span class="o">=</span> <span class="n">Union</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="n">PathLike</span><span class="p">,</span> <span class="n">io</span><span class="o">.</span><span class="n">IOBase</span><span class="p">]</span>
+<span class="n">FileType</span> <span class="o">=</span> <span class="n">Union</span><span class="p">[</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="n">PathLike</span><span class="p">,</span> <span class="n">io</span><span class="o">.</span><span class="n">IOBase</span><span class="p">]</span>
+<span class="n">HashType</span> <span class="o">=</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">ModuleType</span><span class="p">]</span>
 
 
 <div class="viewcode-block" id="Compressor"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.Compressor">[docs]</a><span class="k">class</span> <span class="nc">Compressor</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
@@ -95,26 +102,107 @@
         <span class="o">...</span></div></div>
 
 
+<div class="viewcode-block" id="SignerOptions"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.SignerOptions">[docs]</a><span class="nd">@dataclasses</span><span class="o">.</span><span class="n">dataclass</span>
+<span class="k">class</span> <span class="nc">SignerOptions</span><span class="p">:</span>
+    <span class="n">dumper_class</span><span class="p">:</span> <span class="n">Type</span><span class="p">[</span><span class="n">DumperSigner</span><span class="p">]</span>
+    <span class="n">key</span><span class="p">:</span> <span class="nb">bytes</span> <span class="o">=</span> <span class="n">DEFAULT_KEY</span>
+    <span class="n">hash_type</span><span class="p">:</span> <span class="n">HashType</span> <span class="o">=</span> <span class="s2">&quot;blake2b&quot;</span>
+    <span class="n">hash_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span>
+    <span class="n">compressor</span><span class="p">:</span> <span class="n">Compressor</span> <span class="o">=</span> <span class="n">def_comp</span>
+    <span class="n">compressor_kwargs</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="n">dataclasses</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">COMPRESSOR_KWARGS</span><span class="p">)</span>
+
+    <span class="n">magic_bytes</span> <span class="o">=</span> <span class="sa">b</span><span class="s2">&quot;</span><span class="se">\xd5\xd5</span><span class="s2">&quot;</span>
+    <span class="n">header_format</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="c1"># section, length</span>
+        <span class="s2">&quot;magic_bytes&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;raw&quot;</span><span class="p">),</span>
+        <span class="s2">&quot;hash_size&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="s2">&quot;int&quot;</span><span class="p">),</span>
+        <span class="s2">&quot;dumper_class&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="s2">&quot;class&quot;</span><span class="p">),</span>
+        <span class="s2">&quot;hash_type&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="s2">&quot;str&quot;</span><span class="p">),</span>
+        <span class="s2">&quot;compressor&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="s2">&quot;class&quot;</span><span class="p">),</span>
+    <span class="p">}</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">header_size</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">header_format</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+
+<div class="viewcode-block" id="SignerOptions.header"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.SignerOptions.header">[docs]</a>    <span class="k">def</span> <span class="nf">header</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+        <span class="n">header</span> <span class="o">=</span> <span class="sa">b</span><span class="s2">&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="p">(</span><span class="n">length</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">header_format</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">t</span> <span class="o">==</span> <span class="s2">&quot;raw&quot;</span><span class="p">:</span>
+                <span class="n">header</span> <span class="o">+=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s2">&quot;int&quot;</span><span class="p">:</span>
+                <span class="n">header</span> <span class="o">+=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">))</span><span class="o">.</span><span class="n">to_bytes</span><span class="p">(</span><span class="n">length</span><span class="p">,</span> <span class="s2">&quot;little&quot;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s2">&quot;class&quot;</span><span class="p">:</span>
+                <span class="n">header</span> <span class="o">+=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="o">.</span><span class="n">ljust</span><span class="p">(</span><span class="n">length</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf8&quot;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s2">&quot;str&quot;</span><span class="p">:</span>
+                <span class="n">header</span> <span class="o">+=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">ljust</span><span class="p">(</span><span class="n">length</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf8&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">header</span></div>
+
+<div class="viewcode-block" id="SignerOptions.decode_header"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.SignerOptions.decode_header">[docs]</a>    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">decode_header</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">header</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compressor_kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">header</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="o">!=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">magic_bytes</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">header</span><span class="p">)</span> <span class="o">!=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">header_size</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Invalid header&quot;</span><span class="p">)</span>
+        <span class="n">_new</span><span class="p">:</span> <span class="n">SignerOptions</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="fm">__new__</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="p">(</span><span class="n">length</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">header_format</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">v</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">header</span><span class="p">[:</span><span class="n">length</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">t</span> <span class="o">==</span> <span class="s2">&quot;raw&quot;</span><span class="p">:</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="n">_new</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s2">&quot;int&quot;</span><span class="p">:</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="n">_new</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="nb">int</span><span class="o">.</span><span class="n">from_bytes</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="s2">&quot;little&quot;</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s2">&quot;class&quot;</span><span class="p">:</span>
+                <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;utf8&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">DumperSigner</span><span class="o">.</span><span class="n">subclasses</span><span class="p">():</span>
+                    <span class="nb">setattr</span><span class="p">(</span><span class="n">_new</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">DumperSigner</span><span class="o">.</span><span class="n">subclasses</span><span class="p">()[</span><span class="n">v</span><span class="p">])</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="nb">setattr</span><span class="p">(</span><span class="n">_new</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="n">v</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="n">t</span> <span class="o">==</span> <span class="s2">&quot;str&quot;</span><span class="p">:</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="n">_new</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;utf8&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+            <span class="n">header</span> <span class="o">=</span> <span class="n">header</span><span class="p">[</span><span class="n">length</span><span class="p">:]</span>
+        <span class="k">if</span> <span class="n">key</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">_new</span><span class="o">.</span><span class="n">key</span> <span class="o">=</span> <span class="n">DEFAULT_KEY</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">_new</span><span class="o">.</span><span class="n">key</span> <span class="o">=</span> <span class="n">key</span>
+        <span class="k">if</span> <span class="n">compressor_kwargs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">_new</span><span class="o">.</span><span class="n">compressor_kwargs</span> <span class="o">=</span> <span class="n">COMPRESSOR_KWARGS</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">_new</span><span class="o">.</span><span class="n">compressor_kwargs</span> <span class="o">=</span> <span class="n">compressor_kwargs</span>
+        <span class="k">return</span> <span class="n">_new</span></div></div>
+
+
 <div class="viewcode-block" id="DumperSigner"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.DumperSigner">[docs]</a><span class="k">class</span> <span class="nc">DumperSigner</span><span class="p">:</span>
+<div class="viewcode-block" id="DumperSigner.subclasses"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.DumperSigner.subclasses">[docs]</a>    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">subclasses</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
+        <span class="n">main_ancestor</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">mro</span><span class="p">()[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+        <span class="k">return</span> <span class="p">{</span><span class="n">a</span><span class="o">.</span><span class="vm">__name__</span><span class="p">:</span> <span class="n">a</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">main_ancestor</span><span class="o">.</span><span class="n">__subclasses__</span><span class="p">()</span> <span class="o">+</span> <span class="p">[</span><span class="n">main_ancestor</span><span class="p">]}</span></div>
+
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">key</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">key</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bytes</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">hash_type</span><span class="o">=</span><span class="s2">&quot;blake2b&quot;</span><span class="p">,</span>
         <span class="n">hash_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span>
         <span class="n">compressor</span><span class="p">:</span> <span class="n">Compressor</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">compressor_kwargs</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">use_header</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">options</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">SignerOptions</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">):</span>
-
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_header</span> <span class="o">=</span> <span class="n">use_header</span>
         <span class="k">if</span> <span class="n">key</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">key</span> <span class="o">=</span> <span class="n">DEFAULT_KEY</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">key</span> <span class="o">=</span> <span class="n">key</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">hash_type</span> <span class="o">=</span> <span class="n">hash_type</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">hash_size</span> <span class="o">=</span> <span class="n">hash_size</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="n">DEFAULT_KEY</span>
         <span class="k">if</span> <span class="n">compressor</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">compressor</span> <span class="o">=</span> <span class="n">def_comp</span>
+            <span class="n">compressor</span> <span class="o">=</span> <span class="n">def_comp</span>
         <span class="k">if</span> <span class="n">compressor_kwargs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">compressor_kwargs</span> <span class="o">=</span> <span class="n">COMPRESSION_KWARGS</span>
+            <span class="n">compressor_kwargs</span> <span class="o">=</span> <span class="n">COMPRESSOR_KWARGS</span>
+        <span class="k">if</span> <span class="n">options</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">options</span> <span class="o">=</span> <span class="n">SignerOptions</span><span class="p">(</span>
+                <span class="n">dumper_class</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span>
+                <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">,</span>
+                <span class="n">hash_type</span><span class="o">=</span><span class="n">hash_type</span><span class="p">,</span>
+                <span class="n">hash_size</span><span class="o">=</span><span class="n">hash_size</span><span class="p">,</span>
+                <span class="n">compressor</span><span class="o">=</span><span class="n">compressor</span><span class="p">,</span>
+                <span class="n">compressor_kwargs</span><span class="o">=</span><span class="n">compressor_kwargs</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">options</span> <span class="o">=</span> <span class="n">options</span>
 
 <div class="viewcode-block" id="DumperSigner.dump"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.DumperSigner.dump">[docs]</a>    <span class="k">def</span> <span class="nf">dump</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -127,26 +215,68 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="n">_file</span> <span class="o">=</span> <span class="n">file</span>
         <span class="k">with</span> <span class="n">_maybe_open</span><span class="p">(</span><span class="n">_file</span><span class="p">,</span> <span class="s2">&quot;wb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
-            <span class="n">digest</span> <span class="o">=</span> <span class="n">hmac</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">hash_type</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span>
+            <span class="n">digest</span> <span class="o">=</span> <span class="n">hmac</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">hash_type</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_header</span><span class="p">:</span>
+                <span class="n">fh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">header</span><span class="p">())</span>
             <span class="n">fh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">digest</span><span class="p">)</span>
-            <span class="n">fh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">compressor</span><span class="o">.</span><span class="n">compress</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">compressor_kwargs</span><span class="p">))</span>
+            <span class="n">fh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">compressor</span><span class="o">.</span><span class="n">compress</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">compressor_kwargs</span><span class="p">))</span>
         <span class="k">if</span> <span class="n">file</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">_file</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>  <span class="c1"># type: ignore</span>
         <span class="k">return</span> <span class="kc">None</span></div>
 
-<div class="viewcode-block" id="DumperSigner.load"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.DumperSigner.load">[docs]</a>    <span class="k">def</span> <span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">file</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="n">PathLike</span><span class="p">,</span> <span class="n">io</span><span class="o">.</span><span class="n">IOBase</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+<div class="viewcode-block" id="DumperSigner.load"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.DumperSigner.load">[docs]</a>    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">load</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">file</span><span class="p">:</span> <span class="n">FileType</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compressor_kwargs</span><span class="o">=</span><span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">bytes</span><span class="p">,</span> <span class="n">Type</span><span class="p">[</span><span class="n">DumperSigner</span><span class="p">]]:</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">):</span>
             <span class="n">file</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">(</span><span class="n">file</span><span class="p">)</span>
         <span class="k">with</span> <span class="n">_maybe_open</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
-            <span class="n">digest</span> <span class="o">=</span> <span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hash_size</span><span class="p">)</span>
-            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compressor</span><span class="o">.</span><span class="n">decompress</span><span class="p">(</span><span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
-            <span class="n">expected_digest</span> <span class="o">=</span> <span class="n">hmac</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">hash_type</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">hmac</span><span class="o">.</span><span class="n">compare_digest</span><span class="p">(</span><span class="n">digest</span><span class="p">,</span> <span class="n">expected_digest</span><span class="p">):</span>
-                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                    <span class="s2">&quot;data digest does not match expected digest, &quot;</span>
-                    <span class="s2">&quot;did the file get corrupted or modified?&quot;</span>
+            <span class="n">buf</span> <span class="o">=</span> <span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">SignerOptions</span><span class="o">.</span><span class="n">magic_bytes</span><span class="p">))</span>
+            <span class="n">cls_kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">if</span> <span class="n">buf</span> <span class="o">!=</span> <span class="n">SignerOptions</span><span class="o">.</span><span class="n">magic_bytes</span><span class="p">:</span>
+                <span class="c1"># no header, assume defaults</span>
+
+                <span class="n">this_cls</span> <span class="o">=</span> <span class="bp">cls</span>
+                <span class="n">cls_kwargs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;key&quot;</span><span class="p">:</span> <span class="n">key</span><span class="p">,</span> <span class="s2">&quot;compressor_kwargs&quot;</span><span class="p">:</span> <span class="n">compressor_kwargs</span><span class="p">}</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># header found, decode it</span>
+                <span class="n">buf</span> <span class="o">+=</span> <span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">SignerOptions</span><span class="o">.</span><span class="n">header_size</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">buf</span><span class="p">))</span>  <span class="c1"># type: ignore</span>
+                <span class="n">options</span> <span class="o">=</span> <span class="n">SignerOptions</span><span class="o">.</span><span class="n">decode_header</span><span class="p">(</span>
+                    <span class="n">buf</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">,</span> <span class="n">compressor_kwargs</span><span class="o">=</span><span class="n">compressor_kwargs</span>
                 <span class="p">)</span>
-            <span class="k">return</span> <span class="n">data</span></div></div>
+                <span class="n">buf</span> <span class="o">=</span> <span class="sa">b</span><span class="s2">&quot;&quot;</span>
+                <span class="n">this_cls</span> <span class="o">=</span> <span class="n">options</span><span class="o">.</span><span class="n">dumper_class</span>
+                <span class="n">cls_kwargs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;options&quot;</span><span class="p">:</span> <span class="n">options</span><span class="p">}</span>
+            <span class="n">_new</span> <span class="o">=</span> <span class="n">this_cls</span><span class="p">(</span><span class="o">**</span><span class="n">cls_kwargs</span><span class="p">)</span>
+            <span class="n">digest</span> <span class="o">=</span> <span class="n">buf</span> <span class="o">+</span> <span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">_new</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">hash_size</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">buf</span><span class="p">))</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">_new</span><span class="o">.</span><span class="n">_load</span><span class="p">(</span><span class="n">digest</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">data</span><span class="p">,</span> <span class="n">_new</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">dumper_class</span></div>
+
+    <span class="k">def</span> <span class="nf">_load</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">digest</span><span class="p">,</span> <span class="n">compressed_data</span><span class="p">):</span>
+
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">compressor</span><span class="o">.</span><span class="n">decompress</span><span class="p">(</span><span class="n">compressed_data</span><span class="p">)</span>
+        <span class="n">expected_digest</span> <span class="o">=</span> <span class="n">hmac</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">hash_type</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">hmac</span><span class="o">.</span><span class="n">compare_digest</span><span class="p">(</span><span class="n">digest</span><span class="p">,</span> <span class="n">expected_digest</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;data digest does not match expected digest, &quot;</span>
+                <span class="s2">&quot;did the file get corrupted or modified?&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">data</span>
+
+<div class="viewcode-block" id="DumperSigner.to_base64"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.DumperSigner.to_base64">[docs]</a>    <span class="k">def</span> <span class="nf">to_base64</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">obj</span><span class="p">))</span>  <span class="c1"># type: ignore</span></div>
+
+<div class="viewcode-block" id="DumperSigner.from_base64"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.DumperSigner.from_base64">[docs]</a>    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">from_base64</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">b64</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">base64</span><span class="o">.</span><span class="n">b64decode</span><span class="p">(</span><span class="n">b64</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span></div>
+
+<div class="viewcode-block" id="DumperSigner.to_base85"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.DumperSigner.to_base85">[docs]</a>    <span class="k">def</span> <span class="nf">to_base85</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">base64</span><span class="o">.</span><span class="n">b85encode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">obj</span><span class="p">))</span>  <span class="c1"># type: ignore</span></div>
+
+<div class="viewcode-block" id="DumperSigner.from_base85"><a class="viewcode-back" href="../../signed_pickle.html#signed_pickle.dumper_signer.DumperSigner.from_base85">[docs]</a>    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">from_base85</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">b85</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">base64</span><span class="o">.</span><span class="n">b85decode</span><span class="p">(</span><span class="n">b85</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span></div></div>
 
 
 <span class="nd">@contextmanager</span>
