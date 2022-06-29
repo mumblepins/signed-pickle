@@ -29,7 +29,7 @@ def save_resource(obj, package: Package, resource: Resource):
         return dump(obj, file)
 
 
-__version__: str = "0.0.2"
+__version__: str = "0.1.0"
 
 __all__ = [
     "dump",
