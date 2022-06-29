@@ -12,7 +12,7 @@ from .pickle_signer import PickleSigner  # nosec
 
 
 def dump(obj, file=None):
-    return PickleSigner().dump(obj, file)
+    return PickleSigner(use_header=False).dump(obj, file)
 
 
 def load(file):

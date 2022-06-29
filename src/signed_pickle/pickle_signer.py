@@ -8,13 +8,13 @@ from .dumper_signer import DumperSigner
 
 
 class PickleSigner(DumperSigner):
+    def _load(self, digest, compressed_data):
+        # noinspection PickleLoad
+        return pickle.loads(super()._load(digest, compressed_data))  # nosec
+
     def dump(
         self,
         obj: Any,
         file: Union[None, bytes, str, PathLike, io.IOBase] = None,
     ) -> Optional[bytes]:
         return super().dump(pickle.dumps(obj, protocol=5), file)
-
-    def load(self, file: Union[bytes, str, PathLike, io.IOBase]) -> Any:
-        # noinspection PickleLoad
-        return pickle.loads(super().load(file))  # nosec
