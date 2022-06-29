@@ -49,7 +49,7 @@ jobs:
             ${{ runner.os }}-
       - name: install dependencies
         run: |
-          poetry install --sync
+          poetry install --sync --all-extras
       - name: run pre-commit
         uses: pre-commit/action@v2.0.3
       #        run: poetry run pre-commit run --all-files
@@ -103,7 +103,7 @@ jobs:
             ${{ runner.os }}-
       - name: install dependencies
         run: |
-          poetry install --sync
+          poetry install --sync --all-extras
       - name: build
         run: |
           poetry build
