@@ -26,7 +26,7 @@ pylint-pytest = "^1.1.2"
 pytest-xdist = "^2.5.0"
 myst-parser = "*"
 
-importlib-resources = { version = "^5.7.1", python = "<3.9" }
+importlib-resources = { version = "^5.10.2", python = "<3.9" }
 bump2version = "^1.0.1"
 
 [tool.poetry.extras]
